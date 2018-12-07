@@ -2,10 +2,12 @@
 <html>
 <head>
 	<title></title>
+	<script type="text/javascript" src="helpers.js"></script>
+	<script type="text/javascript" src="renderer.js"></script>
 	<script type="text/javascript" src="script.js"></script>
 	<style type="text/css">
 		#screen {
-			
+
 		}
 	</style>
 </head>
@@ -13,6 +15,11 @@
 	<canvas id="screen"></canvas>
 	<script type="text/javascript">
 		var chip = new chip8();
+		var canvas = document.getElementById("screen");
+		var Width = 64;
+		var Height = 32;
+
+		chip.renderer = new CanvasRenderer(canvas, Width, Height, 16)
 
 		chip.openRom('roms/BLINKY');
 	</script>
