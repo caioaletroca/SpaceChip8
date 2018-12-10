@@ -16,8 +16,6 @@ CanvasRenderer.prototype = {
 	},
 
 	render: function(display) {
-		console.log("Deu bom");
-
 		var x, y;
 		for(var i = 0; i < display.length; i++) {
 			for (var j = 0; j < display[0].length; j++) {

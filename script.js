@@ -14,10 +14,35 @@ var chip8 = function() {
 chip8.prototype = {
 	reset: function() {
 		// Program counter
-		this.pc = 0;
+		// The program counter starts at 0x200, as
+		// that is the start location of the program.
+		this.pc = 0x200;
 
 		// Memory
-		this.memory = new Array(4096);
+		this.memory = new Uint8Array(new ArrayBuffer(0x1000));
+
+		var hexChars = [
+			0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+			0x20, 0x60, 0x20, 0x20, 0x70, // 1
+			0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+			0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+			0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+			0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+			0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+			0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+			0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+			0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+			0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+			0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+			0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+			0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+			0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+			0xF0, 0x80, 0xF0, 0x80, 0x80 // F
+		];
+
+		for (i = 0; i < hexChars.length; i++) {
+			this.memory[i] = hexChars[i];
+		}
 
 		// Stack
 		this.stack = new Array(16);
@@ -26,7 +51,7 @@ chip8.prototype = {
 		this.sp = 0;
 
 		// V registers
-		this.v = new Array(16);
+		this.v = zeros([ 16 ]);
 
 		// I Registers
 		this.i = 0;
@@ -37,11 +62,22 @@ chip8.prototype = {
 		// Sound timer
 		this.soundTimer = 0;
 
+		// Key Pads
+		this.key = {};
+
+		this.step = 0;
+		this.running = false;
+
 		// Clear display
 		this.display = zeros([ this.displayHeight, this.displayWidth ]);
 	},
 
 	start: function() {
+
+		if (!this.renderer) {
+             throw new Error("You must specify a renderer.");
+         }
+
 		this.running = true;
 
 		var self = this;
@@ -57,12 +93,27 @@ chip8.prototype = {
 				self.drawFlag = false;
 			}
 
+			if(!(self.step++ % 2)) {
+				self.handleTimers();
+			}
+
 			requestAnimFrame(me);
 		});
 	},
 
 	stop: function() {
 		this.running = false;
+	},
+
+	handleTimers: function() {
+		if(this.delayTimer > 0)
+			this.delayTimer--;
+
+		if(this.soundTimer > 0) {
+			if(this.soundTimer == 1)
+				console.log("Beep");
+			this.soundTimer--;
+		}
 	},
 
 	openRom: function (path) {
@@ -72,16 +123,46 @@ chip8.prototype = {
 		}).then(function (response) {
 			response.arrayBuffer().then(function(buffer) {
 				// Load File as a binary array
-			  chip8.rom = new Uint8Array(buffer);
-			});
-		});
+				//console.log(this);
+				this.reset();
+				this.rom = new Uint8Array(buffer);
+				for(var i = 0; i < this.rom.length; i++)
+					this.memory[i + 0x0200] = this.rom[i];
+				this.start();
+			}.bind(this));
+		}.bind(this));
+	},
+
+	setKey: function(key) {
+		this.key[key] = 1;
+	},
+
+	setPixel: function(x, y) {
+		if(x > this.displayWidth)
+			x -= this.displayWidth;
+		else if (x < 0)
+			x += this.displayWidth;
+
+		if(y > this.displayHeight)
+			y -= this.displayHeight;
+		else if (y < 0)
+			y += this.displayHeight;
+
+		this.display[x, y] ^= 1;
+
+		return !this.display[x, y];
 	},
 
 	emulateCycle: function () {
 		var opcode = this.memory[this.pc] << 8 | this.memory[this.pc + 1];
 
-		var x = (opcode & 0x0F00);
-		var y = (opcode & 0x00F0);
+		var x = (opcode & 0x0F00) >> 8;
+		var y = (opcode & 0x00F0) >> 4;
+
+		console.log(opcode.toString(16));
+
+		// Each opcode is 2 bytes long
+		this.pc += 2;
 
 		// Read opcode first nibble
 		switch(opcode & 0xF000) {
@@ -92,41 +173,42 @@ chip8.prototype = {
 						this.display = zeros([ this.displayHeight, this.displayWidth ]);
 						break;
 
-					case 0x00EE // Ret
-						this.pc = stack[--this.sp];
+					case 0x00EE: // Ret
+						this.pc = this.stack[--this.sp];
 						break;
 				}
 				break;
 
 			case 0x1000: // JP addr
-				this.pc = opcode & 0x0FFF;
+				this.pc = (opcode & 0x0FFF);
 				break;
 
 			case 0x2000: // Call addr
-				stack[this.sp++] = this.pc;
-				this.pc = opcode & 0x0FFF;
+				this.stack[this.sp++] = this.pc;
+				this.pc = (opcode & 0x0FFF);
+				break;
 
 			case 0x3000: // SE Vx, byte
-				if(this.v[x] === opcode & 0x00FF)
+				if(this.v[x] == (opcode & 0x00FF))
 					this.pc += 2;
 				break;
 
 			case 0x4000: // SNE Vx, byte
-				if(this.v[x] != opcode & 0x00FF)
+				if(this.v[x] != (opcode & 0x00FF))
 					this.pc += 2;
 				break;
 
 			case 0x5000: // SE Vx, Vy
-				if(this.v[x] === this.v[y])
+				if(this.v[x] == this.v[y])
 					this.pc += 2;
 				break;
 
 			case 0x6000: // LD Vx, byte
-				this.v[x] = opcode & 0x00FF;
+				this.v[x] = (opcode & 0x00FF);
 				break; 
 
 			case 0x7000: // Add Vx, byte
-				var value = this.v[x] + opcode & 0x00FF;
+				var value = this.v[x] + (opcode & 0x00FF);
 
 				if(value > 255)
 					value -= 255
@@ -134,7 +216,7 @@ chip8.prototype = {
 				this.v[x] = value;
 				break;
 
-			case 8:
+			case 0x8000:
 				// Search by last byte
 				switch(opcode % 0xF00F){
 					case 0x8000: // LD Vx, Vy
@@ -159,7 +241,7 @@ chip8.prototype = {
 						this.v[15] = (value > 255) ? 1 : 0;
 
 						if(value > 255)
-							value -= 255;
+							value -= 256;
 
 						this.v[x] = value;
 						break;
@@ -170,14 +252,14 @@ chip8.prototype = {
 						this.v[15] = (this.v[x] > this.v[y]) ? 1 : 0;
 
 						if(value < 0)
-							value += 255;
+							value += 256;
 
 						this.v[x] = value;
 						break;
 
 					case 0x8006: // SHR Vx {, Vy}
 						this.v[15] = (this.v[x] & 0x0001 == 0x0001) ? 1 : 0;
-						this.v[x] = this.v[x] / 2;
+						this.v[x] >>= 1;
 						break;
 
 					case 0x8007: // SUBN Vx, Vy
@@ -186,14 +268,16 @@ chip8.prototype = {
 						this.v[15] = (this.v[y] > this.v[x]) ? 1 : 0;
 
 						if(value < 0)
-							value += 255;
+							value += 256;
 
 						this.v[y] = value;
 						break;
 
-					case 0x8006: // SHR Vx {, Vy}
-						this.v[15] = (this.v[x] & 0x0001 == 0x0001) ? 1 : 0;
-						this.v[x] = this.v[x] / 2;
+					case 0x800E: // SHR Vx {, Vy}
+						this.v[15] = (this.v[x] & 0x80) ? 1 : 0;
+						this.v[x] <<= 1;
+						if(this.v[x] > 255)
+							this.v[x] -= 256;
 						break;
 				}
 				break;
@@ -204,34 +288,114 @@ chip8.prototype = {
 				break;
 
 			case 0xA000: // LD I, addr
-				this.i = opcode & 0x0FFF;
+				this.i = (opcode & 0x0FFF);
 				break;
 
 			case 0xB000: // JP V0, addr
-				this.pc = opcode & 0x0FFF + this.v[0];
+				this.pc = (opcode & 0x0FFF) + this.v[0];
 				break;
 
 			case 0xC000: // RND Vx, byte
-				
+				this.v[x] = Math.floor(Math.random() * 0xFF) & (opcode & 0xFF);
 				break;
 
 			case 0xD000: // DRW Vx, Vy, nibble
-				this.i = opcode & 0x0FFF;
+				this.v[15] = 0;
+
+				var height = (opcode & 0x000F);
+				var vX = this.v[x];
+				var vY = this.v[y];
+				var spr;
+				for(var y = 0; x < height; y++) {
+					spr = this.memory[this.i + y];
+					for(var x = 0; x < 8; x++) {
+						if(spr & 0x80 > 0) 
+							if(this.setPixel(vX + x, vY + y))
+								this.v[15] = 1;
+						spr <<= 1;
+					}
+				}
+				this.drawFlag = true;
 				break;
 
-			case 0xA000: // LD I, addr
-				this.i = opcode & 0x0FFF;
+			case 0xE000:
+				switch(opcode & 0xF0FF) {
+					case 0xE09E: // SKP Vx
+						if(this.key[this.v[x]])
+							this.pc += 2;
+						break;
+
+					case 0xE0A1: // SKNP Vx
+						if(!this.key[this.v[x]])
+							this.pc += 2;
+						break;
+				}
+				break;
+
+			case 0xF000:
+				switch(opcode & 0xF0FF) {
+					case 0xF007: // LD Vx, DT
+						this.v[x] = this.delayTimer;
+						break;
+
+					case 0xF00A: // LD Vx, K
+						var oldKeyDown = this.setKey;
+
+						this.setKey = function(key) {
+							this.v[x] = key;
+
+							this.setKey = oldKeyDown.bind(this);
+							this.setKey(key);
+
+							this.start();
+						}.bind(this);
+
+						this.stop();
+						break;
+
+					case 0xF015: // LD DT, Vx
+						this.delayTimer = this.v[x];
+						break;
+
+					case 0xF018: // LD ST, Vx
+						this.soundTimer = this.v[x];
+						break;
+
+					case 0xF01E: // ADD I, Vx
+						this.i += this.v[x];
+
+						if(this.i > 255)
+							this.i -= 256;
+
+						break;
+
+					case 0xF029: // LD F, Vx
+						this.i = this.v[x] * 5;
+						break;
+
+					case 0xF033: // LD B, Vx
+						var number = this.v[x];
+
+						for(var i = 3; i > 0; i--) {
+							this.memory[this.i + i - 1] = parseInt(number % 10);
+							number /= 10;
+						}
+						break;
+
+					case 0xF055: // LD [I], Vx
+						for(var i = 0; i < x; i++)
+							this.memory[this.i + i] = this.v[i];
+						break;
+
+					case 0xF065: // LD Vx, [i]
+						for(var i = 0; i < x; i++)
+							this.v[i] = this.memory[this.i + i];
+						break;
+				}
 				break;
 
 			default:
 				throw new Error("Unknown opcode " + opcode.toString(16) + " passed.");
 		}
-
-		// Each opcode is 2 bytes long
-		this.pc = this.pc + 2;
-
-		// Decrement timers
-		this.delayTimer--;
-		this.soundTimer--;
 	},
 } 
