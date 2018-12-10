@@ -4,7 +4,9 @@
 	<title></title>
 	<script type="text/javascript" src="js/helpers.js"></script>
 	<script type="text/javascript" src="js/renderer.js"></script>
-	<script type="text/javascript" src="js/script.js"></script>
+	<script type="text/javascript" src="js/gamepad.js"></script>
+	<script type="text/javascript" src="js/audio.js"></script>
+	<script type="text/javascript" src="js/chip8.js"></script>
 	<style type="text/css">
 		#screen {
 
@@ -13,13 +15,21 @@
 </head>
 <body>
 	<canvas id="screen"></canvas>
+	<div>FPS:</div>
+	<div id="fps">0</div>
 	<script type="text/javascript">
 		var chip = new chip8();
 		var canvas = document.getElementById("screen");
 		var Width = 64;
 		var Height = 32;
 
-		chip.renderer = new CanvasRenderer(canvas, Width, Height, 16)
+		chip.renderer = new CanvasRenderer(canvas, Width, Height, 8, "#0f0", "#000");
+		chip.gamepad = new Keyboard(chip);
+		chip.audio = new WebBrowserAudio();
+
+		setInterval(function () {
+			document.getElementById("fps").innerHTML = Math.floor(chip.renderer.getFps());
+		}, 500);
 
 		chip.openRom('roms/pong');
 	</script>

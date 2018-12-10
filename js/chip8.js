@@ -1,10 +1,14 @@
-var chip8 = function() {
+var chip8 = function(debug) {
+
+	this.debugMode = debug;
 
 	this.displayWidth = 64;
 	this.displayHeight = 32;
 
 	this.running = null;
 	this.renderer = null;
+	this.gamepad = null;
+	this.audio = null;
 
 	this.rom = [];
 
@@ -45,7 +49,7 @@ chip8.prototype = {
 		}
 
 		// Stack
-		this.stack = new Array(16);
+		this.stack = zeros([16]);
 
 		// Stack Pointer
 		this.sp = 0;
@@ -63,7 +67,7 @@ chip8.prototype = {
 		this.soundTimer = 0;
 
 		// Key Pads
-		this.key = {};
+		this.key = zeros([16]);
 
 		this.step = 0;
 		this.running = false;
@@ -76,7 +80,11 @@ chip8.prototype = {
 
 		if (!this.renderer) {
              throw new Error("You must specify a renderer.");
-         }
+     	}
+
+     	if(!this.audio) {
+     		throw new Error("No audio specified");
+     	}
 
 		this.running = true;
 
@@ -111,7 +119,7 @@ chip8.prototype = {
 
 		if(this.soundTimer > 0) {
 			if(this.soundTimer == 1)
-				console.log("Beep");
+				this.audio.beep();
 			this.soundTimer--;
 		}
 	},
@@ -138,19 +146,19 @@ chip8.prototype = {
 	},
 
 	setPixel: function(x, y) {
-		if(x > this.displayWidth)
+		if(x >= this.displayWidth)
 			x -= this.displayWidth;
 		else if (x < 0)
 			x += this.displayWidth;
 
-		if(y > this.displayHeight)
+		if(y >= this.displayHeight)
 			y -= this.displayHeight;
 		else if (y < 0)
 			y += this.displayHeight;
 
-		this.display[x, y] ^= 1;
+		this.display[y][x] ^= 1;
 
-		return !this.display[x, y];
+		return !this.display[y][x];
 	},
 
 	emulateCycle: function () {
@@ -158,8 +166,14 @@ chip8.prototype = {
 
 		var x = (opcode & 0x0F00) >> 8;
 		var y = (opcode & 0x00F0) >> 4;
-
-		console.log(opcode.toString(16));
+		
+		if(this.debugMode) {
+			console.groupCollapsed('Current State: ' + opcode.toString(16));
+			console.log(opcode.toString(16));
+			console.log(this);
+			console.log(this.v.toString());
+			console.groupEnd();
+		}
 
 		// Each opcode is 2 bytes long
 		this.pc += 2;
@@ -211,14 +225,14 @@ chip8.prototype = {
 				var value = this.v[x] + (opcode & 0x00FF);
 
 				if(value > 255)
-					value -= 255
+					value -= 256
 
 				this.v[x] = value;
 				break;
 
 			case 0x8000:
 				// Search by last byte
-				switch(opcode % 0xF00F){
+				switch(opcode & 0xF00F){
 					case 0x8000: // LD Vx, Vy
 						this.v[x] = this.v[y];
 						break;
@@ -258,7 +272,7 @@ chip8.prototype = {
 						break;
 
 					case 0x8006: // SHR Vx {, Vy}
-						this.v[15] = (this.v[x] & 0x0001 == 0x0001) ? 1 : 0;
+						this.v[15] = (this.v[x] & 0x1);
 						this.v[x] >>= 1;
 						break;
 
@@ -274,7 +288,7 @@ chip8.prototype = {
 						break;
 
 					case 0x800E: // SHR Vx {, Vy}
-						this.v[15] = (this.v[x] & 0x80) ? 1 : 0;
+						this.v[15] = +(this.v[x] & 0x80);
 						this.v[x] <<= 1;
 						if(this.v[x] > 255)
 							this.v[x] -= 256;
@@ -306,10 +320,10 @@ chip8.prototype = {
 				var vX = this.v[x];
 				var vY = this.v[y];
 				var spr;
-				for(var y = 0; x < height; y++) {
+				for(var y = 0; y < height; y++) {
 					spr = this.memory[this.i + y];
 					for(var x = 0; x < 8; x++) {
-						if(spr & 0x80 > 0) 
+						if((spr & 0x80) > 0)
 							if(this.setPixel(vX + x, vY + y))
 								this.v[15] = 1;
 						spr <<= 1;
