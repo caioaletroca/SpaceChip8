@@ -1,0 +1,18 @@
+{
+  "name": "spacechip8",
+  "version": "1.0.0",
+  "description": "A Chip8 emulator",
+  "main": "index.html",
+  "scripts": {
+    "dev": "http-server ."
+  },
+  "keywords": [
+    "Emulator",
+    "Chip8"
+  ],
+  "author": "Caio Troti",
+  "license": "ISC",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
